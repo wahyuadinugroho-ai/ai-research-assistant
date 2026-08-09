@@ -1,0 +1,27 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.env
+.venv
+
+.DS_Store
+
+*.log
+*.pdf
+*.txt
+
+# Cache files
+.cache/
+.ruff_cache/
+
+# Data & History
+chat_history
+data/
+chroma_db/
+faiss_index/
