@@ -21,6 +21,7 @@ wheels/
 .ruff_cache/
 
 # Data & History
+chat_archive
 chat_history
 data/
 chroma_db/

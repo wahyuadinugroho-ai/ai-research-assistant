@@ -57,7 +57,7 @@ def _list_sessions_from_dir(directory):
                 data = json.load(file)
                 title = data.get("title", s_id) if isinstance(data, dict) else "Chat Lama"
                 sessions.append((s_id, title))
-            except:
+            except Exception:
                 pass
     return sessions
 

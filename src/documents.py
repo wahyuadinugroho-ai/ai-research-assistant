@@ -5,7 +5,6 @@ import os
 import tempfile
 import nltk
 
-# Notebook 4: NLTKTextSplitter requires 'punkt_tab' or 'punkt' depending on nltk version
 try:
     nltk.data.find('tokenizers/punkt_tab')
 except LookupError:

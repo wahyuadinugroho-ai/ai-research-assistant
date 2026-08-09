@@ -4,8 +4,8 @@ from langchain_core.prompts import PromptTemplate
 from src.agent import create_research_agent
 from src.config import (
     GOOGLE_API_KEY as ENV_GEMINI_KEY, 
-    EXA_API_KEY as ENV_EXA_KEY, 
-    TOP_K
+    EXA_API_KEY as ENV_EXA_KEY,
+    MAX_HISTORY_TURNS
 )
 from src.documents import load_and_split_papers
 from src.helpers import extract_text
@@ -22,13 +22,11 @@ from src.prompts import (
 from src.rag import create_chroma_vectorstore, create_faiss_vectorstore, quick_action_stream, generate_suggestions
 import base64
 import json
-import os
 import streamlit as st
 import traceback
 import uuid
 
 # Max messages to include in agent context (sliding window — prevents token overflow)
-MAX_HISTORY_TURNS = 10
 
 # ============================================================
 # PAGE CONFIG
@@ -252,9 +250,6 @@ if _agent_stale:
 
 agent = st.session_state.agent
 
-# ============================================================
-# UI: MULTIMODAL & CHAT
-# ============================================================
 
 if "files" in st.session_state and st.session_state.files:
     with st.expander("📄 Lihat Dokumen PDF (Preview)", expanded=False):
@@ -331,9 +326,12 @@ sug3 = cols[2].button(sug_labels[2], use_container_width=True)
 
 question = st.chat_input("Tanya sesuatu atau suruh bandingkan paper...")
 
-if sug1: question = sug_labels[0]
-if sug2: question = sug_labels[1]
-if sug3: question = sug_labels[2]
+if sug1: 
+    question = sug_labels[0]
+if sug2: 
+    question = sug_labels[1]
+if sug3: 
+    question = sug_labels[2]
 
 action_req = st.session_state.pop("action_request", None)
 litreview_req = st.session_state.pop("litreview_request", False)

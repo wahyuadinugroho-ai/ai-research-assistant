@@ -1,6 +1,11 @@
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_google_genai import HarmCategory, HarmBlockThreshold
-from src.config import EMBEDDING_MODEL, GOOGLE_API_KEY, LLM_MODEL, TEMPERATURE
+from src.config import (
+    EMBEDDING_MODEL, 
+    GOOGLE_API_KEY, 
+    LLM_MODEL, 
+    TEMPERATURE
+)
 
 safety_settings = {
     HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,

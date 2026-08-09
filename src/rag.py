@@ -2,7 +2,6 @@ from langchain_chroma import Chroma
 from langchain_community.vectorstores import FAISS
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from src.config import TOP_K
 from src.prompts import SUGGESTION_PROMPT
 import re
 

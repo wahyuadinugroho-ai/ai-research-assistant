@@ -1,6 +1,6 @@
 [project]
 name = "ai-research-assistant"
-version = "0.1.0"
+version = "1.0.0"
 description = "An agentic RAG-powered research assistant for analyzing and comparing academic papers using Google Gemini."
 readme = "README.md"
 requires-python = ">=3.11"
