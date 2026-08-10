@@ -315,10 +315,39 @@ if "files" in st.session_state and st.session_state.files:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
+if "editing_msg_idx" not in st.session_state:
+    st.session_state.editing_msg_idx = None
+
 # Display history
-for msg in st.session_state.messages:
+for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+        if st.session_state.editing_msg_idx == i:
+            new_text = st.text_area("Edit pesan", value=msg["content"], key=f"edit_area_{i}_{st.session_state.session_id}")
+            colA, colB = st.columns([1, 1])
+            with colA:
+                if st.button("Batal", key=f"cancel_edit_{i}_{st.session_state.session_id}", use_container_width=True):
+                    st.session_state.editing_msg_idx = None
+                    st.rerun()
+            with colB:
+                if st.button("Simpan & Kirim Ulang", key=f"save_edit_{i}_{st.session_state.session_id}", use_container_width=True):
+                    st.session_state.messages = st.session_state.messages[:i]
+                    st.session_state.editing_msg_idx = None
+                    st.session_state.edit_request = new_text
+                    st.rerun()
+        else:
+            col1, col2, col3 = st.columns([0.9, 0.05, 0.05])
+            with col1:
+                st.markdown(msg["content"])
+            with col2:
+                if msg["role"] == "user":
+                    if st.button("✏️", key=f"edit_msg_{i}_{st.session_state.session_id}", help="Edit pesan", use_container_width=True):
+                        st.session_state.editing_msg_idx = i
+                        st.rerun()
+            with col3:
+                if st.button("🗑️", key=f"del_msg_{i}_{st.session_state.session_id}", help="Hapus pesan ini", use_container_width=True):
+                    st.session_state.messages.pop(i)
+                    save_session(st.session_state.session_id, st.session_state.messages, st.session_state.get("session_title", "Chat Baru"))
+                    st.rerun()
 
 st.markdown("💡 **Rekomendasi Pertanyaan:**")
 cols = st.columns(3)
@@ -342,8 +371,9 @@ if sug3:
 
 action_req = st.session_state.pop("action_request", None)
 litreview_req = st.session_state.pop("litreview_request", False)
+edit_req = st.session_state.pop("edit_request", None)
 
-if question or action_req or litreview_req:
+if question or action_req or litreview_req or edit_req:
     is_action = action_req is not None
     is_litreview = litreview_req and not is_action
     user_text = ""  # guard against UnboundLocalError
@@ -353,6 +383,8 @@ if question or action_req or litreview_req:
     elif is_action:
         paper_name, action_label, prompt_template = action_req
         user_text = f"Tolong buatkan **{action_label}** untuk paper: **{paper_name}**"
+    elif edit_req:
+        user_text = edit_req
     elif question:
         user_text = question
 

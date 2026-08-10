@@ -15,12 +15,17 @@ def get_llm(api_key=None):
     if not key:
         raise ValueError("Google API Key is missing.")
 
-    return ChatGoogleGenerativeAI(
-        model=LLM_MODEL,
-        temperature=TEMPERATURE,
-        google_api_key=key,
-        safety_settings=safety_settings,
-    )
+    kwargs = {
+        "model": LLM_MODEL,
+        "google_api_key": key,
+        "safety_settings": safety_settings,
+    }
+    
+    # gemini-3.5-flash-lite uses fixed sampling defaults, so temperature will be ignored and throw a warning
+    if "flash-lite" not in LLM_MODEL.lower():
+        kwargs["temperature"] = TEMPERATURE
+
+    return ChatGoogleGenerativeAI(**kwargs)
 
 
 def get_embeddings(api_key=None):
