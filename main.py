@@ -1,6 +1,7 @@
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
+from pydantic import BaseModel, Field
 from src.agent import create_research_agent
 from src.config import (
     GOOGLE_API_KEY as ENV_GEMINI_KEY, 
@@ -20,13 +21,24 @@ from src.prompts import (
     METADATA_PROMPT, TITLE_PROMPT,
 )
 from src.rag import create_chroma_vectorstore, create_faiss_vectorstore, quick_action_stream, generate_suggestions
+from typing import List, Optional
 import base64
 import json
 import streamlit as st
 import traceback
 import uuid
 
-# Max messages to include in agent context (sliding window — prevents token overflow)
+
+class PaperMetadataModel(BaseModel):
+    title: Optional[str] = Field(description="Judul paper")
+    authors: Optional[List[str]] = Field(description="Daftar nama penulis")
+    year: Optional[str] = Field(description="Tahun publikasi")
+    journal: Optional[str] = Field(description="Nama jurnal atau konferensi")
+    doi: Optional[str] = Field(description="DOI")
+    abstract: Optional[str] = Field(description="Abstrak dalam 2-3 kalimat")
+    keywords: Optional[List[str]] = Field(description="Daftar keyword")
+    institution: Optional[str] = Field(description="Institusi atau afiliasi penulis")
+
 
 # ============================================================
 # PAGE CONFIG
@@ -92,26 +104,21 @@ with st.sidebar:
         with col2:
             btn_metadata = st.button("📊 Metadata", use_container_width=True)
 
-        action_request = None
-        if btn_summary:
-            action_request = ("Rangkuman", SUMMARY_PROMPT)
-        elif btn_glossary:
-            action_request = ("Kamus Istilah", GLOSSARY_PROMPT)
-        elif btn_citation:
-            action_request = ("Sitasi", CITATION_PROMPT)
-        elif btn_critique:
-            action_request = ("Kritik Akademis", CRITIQUE_PROMPT)
-        elif btn_insight:
-            action_request = ("Research Insight", INSIGHT_PROMPT)
-        elif btn_gap:
-            action_request = ("Research Gap", GAP_PROMPT)
-        elif btn_methodology:
-            action_request = ("Analisis Metodologi", METHODOLOGY_PROMPT)
-        elif btn_metadata:
-            action_request = ("Metadata", METADATA_PROMPT)
-            
-        if action_request:
-            st.session_state.action_request = (selected_paper, action_request[0], action_request[1])
+        actions = {
+            btn_summary: ("Rangkuman", SUMMARY_PROMPT),
+            btn_glossary: ("Kamus Istilah", GLOSSARY_PROMPT),
+            btn_citation: ("Sitasi", CITATION_PROMPT),
+            btn_critique: ("Kritik Akademis", CRITIQUE_PROMPT),
+            btn_insight: ("Research Insight", INSIGHT_PROMPT),
+            btn_gap: ("Research Gap", GAP_PROMPT),
+            btn_methodology: ("Analisis Metodologi", METHODOLOGY_PROMPT),
+            btn_metadata: ("Metadata", METADATA_PROMPT),
+        }
+        
+        for btn, action_data in actions.items():
+            if btn:
+                st.session_state.action_request = (selected_paper, action_data[0], action_data[1])
+                break
 
         st.caption("**Multi-Paper**")
         btn_litreview = st.button("📑 Literature Review", use_container_width=True, help="Sintetis semua paper yang diupload")
@@ -279,11 +286,11 @@ if "files" in st.session_state and st.session_state.files:
                 if docs_for_meta:
                     meta_text = "\n".join(d.page_content for d in docs_for_meta)[:3000]
                     try:
-                        _chain = PromptTemplate.from_template(METADATA_PROMPT) | llm | StrOutputParser()
-                        raw = _chain.invoke({"text": meta_text})
-                        # Strip markdown code fences if present
-                        raw = raw.strip().lstrip("```json").lstrip("```").rstrip("```").strip()
-                        st.session_state.paper_metadata[fname] = json.loads(raw)
+                        structured_llm = llm.with_structured_output(PaperMetadataModel)
+                        meta_obj = structured_llm.invoke(
+                            f"Ekstrak metadata dari dokumen akademis berikut:\n\n{meta_text}"
+                        )
+                        st.session_state.paper_metadata[fname] = meta_obj.dict() if meta_obj else None
                     except Exception:
                         st.session_state.paper_metadata[fname] = None
 
@@ -389,7 +396,8 @@ if question or action_req or litreview_req:
             else:
                 # Agentic invocation
                 # Truncate history to sliding window to prevent token overflow
-                history_window = st.session_state.messages[-(MAX_HISTORY_TURNS * 2):-1]
+                history = st.session_state.messages[:-1] # exclude current message
+                history_window = history[-(MAX_HISTORY_TURNS * 2):] if MAX_HISTORY_TURNS > 0 else []
                 langgraph_history = []
                 for m in history_window:
                     if m["role"] == "user":

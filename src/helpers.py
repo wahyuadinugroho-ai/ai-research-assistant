@@ -8,11 +8,10 @@ def build_chat_history(messages, max_messages=6):
     for message in recent_messages:
         role = message["role"].capitalize()
 
-        history.append(
-            f"{role}: {message['content']}"
-        )
+        history.append(f"{role}: {message['content']}")
 
     return "\n".join(history)
+
 
 def extract_text(content):
     """Extract plain text from an LLM response content."""

@@ -6,12 +6,13 @@ import tempfile
 import nltk
 
 try:
-    nltk.data.find('tokenizers/punkt_tab')
+    nltk.data.find("tokenizers/punkt_tab")
 except LookupError:
     try:
-        nltk.download('punkt_tab', quiet=True)
+        nltk.download("punkt_tab", quiet=True)
     except Exception:
-        nltk.download('punkt', quiet=True)
+        nltk.download("punkt", quiet=True)
+
 
 def load_pdf(uploaded_file):
     """

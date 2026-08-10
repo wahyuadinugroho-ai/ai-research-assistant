@@ -4,6 +4,12 @@
 install:
 	uv sync
 
+format:
+	ruff check --fix src && ruff format src
+
+lint:
+	ruff check src
+
 # Run the Streamlit application
 run:
 	streamlit run main.py
