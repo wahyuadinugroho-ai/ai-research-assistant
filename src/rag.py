@@ -19,33 +19,54 @@ def create_faiss_vectorstore(documents, embeddings):
 def quick_action_stream(documents, llm, prompt_template):
     """Generate a structured response for quick actions using LCEL and stream response.
 
-    Caps input text at 15,000 chars to avoid token overflow on large PDFs.
+    Uses a generous character limit of 120,000 chars (~25k tokens) to analyze full papers
+    and multi-paper literature reviews comprehensively with Gemini.
     """
-    MAX_CHARS = 15_000
-    raw_text = "\n\n".join(document.page_content for document in documents)
+    if not documents:
+
+        def _empty_gen():
+            yield "Tidak ada dokumen yang dipilih atau dokumen tidak memiliki konten teks."
+
+        return _empty_gen()
+
+    MAX_CHARS = 120_000
+    raw_text = "\n\n".join(
+        f"--- Dokumen: {doc.metadata.get('filename', 'Unknown')} (Halaman {doc.metadata.get('page', 0) + 1}) ---\n{doc.page_content}"
+        for doc in documents
+        if doc.page_content and doc.page_content.strip()
+    )
+
     text = raw_text[:MAX_CHARS]
     if len(raw_text) > MAX_CHARS:
-        text += "\n\n[Konten dipotong karena dokumen terlalu panjang. Ringkasan berdasarkan bagian pertama dokumen.]"
-    prompt = PromptTemplate.from_template(prompt_template)
+        text += "\n\n[Catatan: Sebagian teks dipotong karena melebihi batas 120.000 karakter.]"
 
+    prompt = PromptTemplate.from_template(prompt_template)
     chain = prompt | llm | StrOutputParser()
 
-    stream = chain.stream({"text": text})
-
-    return stream
+    return chain.stream({"text": text})
 
 
 def generate_suggestions(documents, llm):
     """Generate 3 dynamic questions based on the document."""
-    if not documents:
-        return [
-            "Apa kontribusi utamanya?",
-            "Bandingkan metodenya",
-            "Ringkas temuan akhirnya",
-        ]
+    default_questions = [
+        "Apa kontribusi utamanya?",
+        "Bandingkan metodenya",
+        "Ringkas temuan akhirnya",
+    ]
 
-    # Ambil 1500 karakter pertama saja agar cepat dan hemat token
-    text = documents[0].page_content[:1500]
+    if not documents:
+        return default_questions
+
+    # Take up to 2500 chars for richer context while remaining fast
+    valid_contents = [
+        d.page_content.strip()
+        for d in documents
+        if d.page_content and d.page_content.strip()
+    ]
+    if not valid_contents:
+        return default_questions
+
+    text = valid_contents[0][:2500]
     prompt = PromptTemplate.from_template(SUGGESTION_PROMPT)
     chain = prompt | llm | StrOutputParser()
     try:
@@ -60,12 +81,8 @@ def generate_suggestions(documents, llm):
 
         # Fallback if not enough questions parsed
         while len(questions) < 3:
-            questions.append("Jelaskan lebih lanjut!")
+            questions.append(default_questions[len(questions)])
 
         return questions
     except Exception:
-        return [
-            "Apa kontribusi utamanya?",
-            "Bandingkan metodenya",
-            "Ringkas temuan akhirnya",
-        ]
+        return default_questions
