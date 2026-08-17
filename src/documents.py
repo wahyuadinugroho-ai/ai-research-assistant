@@ -1,5 +1,5 @@
 from langchain_community.document_loaders import PyMuPDFLoader
-from langchain_text_splitters import NLTKTextSplitter
+from langchain_text_splitters import NLTKTextSplitter, RecursiveCharacterTextSplitter
 from src.config import CHUNK_OVERLAP, CHUNK_SIZE
 import os
 import tempfile
@@ -11,7 +11,10 @@ except LookupError:
     try:
         nltk.download("punkt_tab", quiet=True)
     except Exception:
-        nltk.download("punkt", quiet=True)
+        try:
+            nltk.download("punkt", quiet=True)
+        except Exception:
+            pass
 
 
 def load_pdf(uploaded_file):
@@ -37,23 +40,52 @@ def load_pdf(uploaded_file):
 
 def split_documents(documents):
     """
-    Split documents into chunks for RAG using NLTK.
+    Split documents into chunks for RAG using NLTK (with RecursiveCharacterTextSplitter fallback).
     """
-    splitter = NLTKTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-    )
+    if not documents:
+        return []
 
-    return splitter.split_documents(documents)
+    try:
+        splitter = NLTKTextSplitter(
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
+        )
+        chunks = splitter.split_documents(documents)
+    except Exception:
+        # Fallback to standard recursive text splitter if NLTK fails
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=CHUNK_SIZE,
+            chunk_overlap=CHUNK_OVERLAP,
+        )
+        chunks = splitter.split_documents(documents)
+
+    # Filter out empty or whitespace-only chunks
+    return [c for c in chunks if c.page_content and c.page_content.strip()]
 
 
 def load_and_split_papers(files):
     """
     Load multiple PDFs and split them into chunks.
+    Validates that extractable text exists.
     """
     documents = []
 
     for file in files:
-        documents.extend(load_pdf(file))
+        docs = load_pdf(file)
+        documents.extend(docs)
 
-    return documents, split_documents(documents)
+    # Check if there is actual readable text
+    total_text_length = sum(len(doc.page_content.strip()) for doc in documents)
+    if total_text_length < 20:
+        raise ValueError(
+            "PDF yang diunggah tidak mengandung teks yang dapat dibaca. "
+            "Pastikan PDF bukan hasil scan gambar murni tanpa OCR dan tidak terenkripsi."
+        )
+
+    chunks = split_documents(documents)
+    if not chunks:
+        raise ValueError(
+            "Gagal memecah teks PDF menjadi potongan chunk untuk embedding."
+        )
+
+    return documents, chunks
