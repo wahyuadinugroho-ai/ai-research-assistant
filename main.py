@@ -1,7 +1,6 @@
 from langchain_core.messages import HumanMessage, AIMessage, AIMessageChunk
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import PromptTemplate
-from pydantic import BaseModel, Field
 from src.agent import create_research_agent
 from src.config import (
     GOOGLE_API_KEY as ENV_GEMINI_KEY, 
@@ -12,32 +11,19 @@ from src.documents import load_and_split_papers
 from src.helpers import extract_text
 from src.history import (
     list_sessions, list_archived_sessions, load_session, save_session,
-    archive_session, unarchive_session, delete_session
+    archive_session, unarchive_session, delete_session, export_session_to_markdown
 )
-from src.models import get_embeddings, get_llm
+from src.models import PaperMetadataModel, get_embeddings, get_llm
 from src.prompts import (
     SUMMARY_PROMPT, CITATION_PROMPT, GLOSSARY_PROMPT, CRITIQUE_PROMPT,
     INSIGHT_PROMPT, GAP_PROMPT, METHODOLOGY_PROMPT, LITERATURE_REVIEW_PROMPT,
-    METADATA_PROMPT, TITLE_PROMPT,
+    TITLE_PROMPT,
 )
 from src.rag import create_chroma_vectorstore, create_faiss_vectorstore, quick_action_stream, generate_suggestions
-from typing import List, Optional
 import base64
-import json
 import streamlit as st
 import traceback
 import uuid
-
-
-class PaperMetadataModel(BaseModel):
-    title: Optional[str] = Field(description="Judul paper")
-    authors: Optional[List[str]] = Field(description="Daftar nama penulis")
-    year: Optional[str] = Field(description="Tahun publikasi")
-    journal: Optional[str] = Field(description="Nama jurnal atau konferensi")
-    doi: Optional[str] = Field(description="DOI")
-    abstract: Optional[str] = Field(description="Abstrak dalam 2-3 kalimat")
-    keywords: Optional[List[str]] = Field(description="Daftar keyword")
-    institution: Optional[str] = Field(description="Institusi atau afiliasi penulis")
 
 
 # ============================================================
@@ -98,27 +84,22 @@ with st.sidebar:
             btn_gap = st.button("🎯 Gap", use_container_width=True)
         
         st.caption("**Analisis Mendalam**")
-        col1, col2 = st.columns(2)
-        with col1:
-            btn_methodology = st.button("🧪 Metodologi", use_container_width=True)
-        with col2:
-            btn_metadata = st.button("📊 Metadata", use_container_width=True)
+        btn_methodology = st.button("🧪 Metodologi", use_container_width=True)
 
-        actions = {
-            btn_summary: ("Rangkuman", SUMMARY_PROMPT),
-            btn_glossary: ("Kamus Istilah", GLOSSARY_PROMPT),
-            btn_citation: ("Sitasi", CITATION_PROMPT),
-            btn_critique: ("Kritik Akademis", CRITIQUE_PROMPT),
-            btn_insight: ("Research Insight", INSIGHT_PROMPT),
-            btn_gap: ("Research Gap", GAP_PROMPT),
-            btn_methodology: ("Analisis Metodologi", METHODOLOGY_PROMPT),
-            btn_metadata: ("Metadata", METADATA_PROMPT),
-        }
-        
-        for btn, action_data in actions.items():
-            if btn:
-                st.session_state.action_request = (selected_paper, action_data[0], action_data[1])
-                break
+        if btn_summary:
+            st.session_state.action_request = (selected_paper, "Rangkuman", SUMMARY_PROMPT)
+        elif btn_glossary:
+            st.session_state.action_request = (selected_paper, "Kamus Istilah", GLOSSARY_PROMPT)
+        elif btn_citation:
+            st.session_state.action_request = (selected_paper, "Sitasi", CITATION_PROMPT)
+        elif btn_critique:
+            st.session_state.action_request = (selected_paper, "Kritik Akademis", CRITIQUE_PROMPT)
+        elif btn_insight:
+            st.session_state.action_request = (selected_paper, "Research Insight", INSIGHT_PROMPT)
+        elif btn_gap:
+            st.session_state.action_request = (selected_paper, "Research Gap", GAP_PROMPT)
+        elif btn_methodology:
+            st.session_state.action_request = (selected_paper, "Analisis Metodologi", METHODOLOGY_PROMPT)
 
         st.caption("**Multi-Paper**")
         btn_litreview = st.button("📑 Literature Review", use_container_width=True, help="Sintetis semua paper yang diupload")
@@ -137,6 +118,7 @@ with st.sidebar:
         st.session_state.session_id = str(uuid.uuid4())[:8]
         st.session_state.messages = []
         st.session_state.session_title = "Chat Baru"
+        st.rerun()
         
     sessions = list_sessions()
     for s_id, s_title in sessions:
@@ -145,6 +127,7 @@ with st.sidebar:
             if st.button(f"💬 {s_title}", key=f"load_{s_id}", use_container_width=True):
                 st.session_state.session_id = s_id
                 st.session_state.session_title, st.session_state.messages = load_session(s_id)
+                st.rerun()
         with col2:
             if st.button("📦", key=f"arc_{s_id}", help="Arsipkan chat ini"):
                 archive_session(s_id)
@@ -172,6 +155,7 @@ with st.sidebar:
                     if st.button(f"💬 {s_title}", key=f"aload_{s_id}", use_container_width=True):
                         st.session_state.session_id = s_id
                         st.session_state.session_title, st.session_state.messages = load_session(s_id)
+                        st.rerun()
                 with colB:
                     if st.button("🔄", key=f"unarc_{s_id}", help="Kembalikan chat (Unarchive)"):
                         unarchive_session(s_id)
@@ -192,7 +176,23 @@ if not st.session_state.gemini_api_key:
     st.error("Google Gemini API key is missing. Silakan masukkan di sidebar.")
     st.stop()
 
-st.title("🔬 AI Research Assistant")
+# Header layout with Title & Export Button
+head_col1, head_col2 = st.columns([0.8, 0.2])
+with head_col1:
+    st.title("🔬 AI Research Assistant")
+with head_col2:
+    if "messages" in st.session_state and st.session_state.messages:
+        md_export = export_session_to_markdown(
+            st.session_state.get("session_title", "Research Chat"),
+            st.session_state.messages
+        )
+        st.download_button(
+            label="📥 Export Chat (.md)",
+            data=md_export,
+            file_name=f"{st.session_state.get('session_title', 'chat').replace(' ', '_')}.md",
+            mime="text/markdown",
+            use_container_width=True,
+        )
 
 @st.cache_resource
 def load_models(api_key):
@@ -203,6 +203,21 @@ try:
 except Exception as e:
     st.error(f"Gagal memuat model: {e}")
     st.stop()
+
+# Issue 7: Invalidate vectorstore when API key changes, because the
+# embedding model instance changes and old index becomes incompatible.
+if (
+    "prev_api_key" in st.session_state
+    and st.session_state.prev_api_key != st.session_state.gemini_api_key
+    and "vectorstore" in st.session_state
+):
+    st.session_state.pop("vectorstore", None)
+    st.session_state.pop("documents", None)
+    st.session_state.pop("files", None)
+    st.session_state.pop("paper_metadata", None)
+    st.session_state.pop("dynamic_suggestions", None)
+    st.warning("⚠️ API key berubah. Silakan rebuild Knowledge Base.")
+st.session_state.prev_api_key = st.session_state.gemini_api_key
 
 # ============================================================
 # BUILD KNOWLEDGE BASE
@@ -221,24 +236,39 @@ if build_button:
 
             st.session_state.vectorstore = vectorstore
             st.session_state.documents = documents
-            st.session_state.files = [file.name for file in uploaded_files]
+            file_names = [file.name for file in uploaded_files]
+            st.session_state.files = file_names
             st.session_state.messages = []
+            st.session_state.paper_metadata = {}
             
+            # Extract metadata eagerly during knowledge base creation with spinner
+            with st.spinner("Mengekstrak metadata paper..."):
+                structured_llm = llm.with_structured_output(PaperMetadataModel)
+                for fname in file_names:
+                    try:
+                        docs_for_meta = [d for d in documents if d.metadata.get("filename") == fname][:3]
+                        if docs_for_meta:
+                            meta_text = "\n".join(d.page_content for d in docs_for_meta)[:3000]
+                            meta_obj = structured_llm.invoke(
+                                f"Ekstrak metadata dari dokumen akademis berikut:\n\n{meta_text}"
+                            )
+                            st.session_state.paper_metadata[fname] = meta_obj.model_dump() if meta_obj else None
+                    except Exception as e:
+                        st.session_state.paper_metadata[fname] = None
+                        st.warning(f"⚠️ Gagal mengekstrak metadata untuk {fname}: {e}")
+
             with st.spinner("Merumuskan rekomendasi pertanyaan..."):
                 st.session_state.dynamic_suggestions = generate_suggestions(documents, llm)
                 
             st.success("Knowledge base berhasil dibuat!")
         except Exception as e:
-            st.error(f"Gagal memproses dokumen! Pastikan API Key yang Anda masukkan valid dan aktif. Detail Error: {e}")
-
-if "vectorstore" not in st.session_state:
-    st.info("Upload research papers dan klik **Build Knowledge Base** di sidebar.")
-    st.stop()
+            st.error(f"Gagal memproses dokumen! Detail: {e}")
 
 # ============================================================
-# AGENT SETUP — rebuild only when vectorstore or keys change
+# AGENT SETUP — works with or without vectorstore
 # ============================================================
-_vs_id = id(st.session_state.vectorstore)
+current_vs = st.session_state.get("vectorstore", None)
+_vs_id = id(current_vs) if current_vs else None
 _agent_stale = (
     "agent" not in st.session_state
     or st.session_state.get("_agent_vs_id") != _vs_id
@@ -248,7 +278,7 @@ _agent_stale = (
 if _agent_stale:
     st.session_state.agent = create_research_agent(
         llm,
-        st.session_state.vectorstore,
+        current_vs,
         exa_api_key=st.session_state.exa_api_key,
     )
     st.session_state._agent_vs_id = _vs_id
@@ -257,7 +287,9 @@ if _agent_stale:
 
 agent = st.session_state.agent
 
-
+# ============================================================
+# PDF VIEWER & METADATA PANELS
+# ============================================================
 if "files" in st.session_state and st.session_state.files:
     with st.expander("📄 Lihat Dokumen PDF (Preview)", expanded=False):
         if uploaded_files:
@@ -271,47 +303,33 @@ if "files" in st.session_state and st.session_state.files:
         else:
             st.info("Silakan upload ulang file PDF di sidebar untuk membaca dokumen langsung di sini.")
 
-    # ── Paper Metadata auto-extraction ──
-    with st.expander("📊 Paper Metadata", expanded=False):
-        if "paper_metadata" not in st.session_state:
-            st.session_state.paper_metadata = {}
-        
-        for fname in st.session_state.files:
-            if fname not in st.session_state.paper_metadata:
-                # Extract from first page(s) only for speed
-                docs_for_meta = [
-                    d for d in st.session_state.documents
-                    if d.metadata.get("filename") == fname
-                ][:3]
-                if docs_for_meta:
-                    meta_text = "\n".join(d.page_content for d in docs_for_meta)[:3000]
-                    try:
-                        structured_llm = llm.with_structured_output(PaperMetadataModel)
-                        meta_obj = structured_llm.invoke(
-                            f"Ekstrak metadata dari dokumen akademis berikut:\n\n{meta_text}"
-                        )
-                        st.session_state.paper_metadata[fname] = meta_obj.dict() if meta_obj else None
-                    except Exception:
-                        st.session_state.paper_metadata[fname] = None
+    # Paper Metadata Panel
+    if st.session_state.get("paper_metadata"):
+        with st.expander("📊 Paper Metadata", expanded=False):
+            for fname, meta in st.session_state.paper_metadata.items():
+                st.markdown(f"**📄 {fname}**")
+                if meta:
+                    cols = st.columns(2)
+                    cols[0].markdown(f"**Judul:** {meta.get('title') or 'N/A'}")
+                    cols[0].markdown(f"**Penulis:** {', '.join(meta.get('authors') or []) or 'N/A'}")
+                    cols[0].markdown(f"**Tahun:** {meta.get('year') or 'N/A'}")
+                    cols[0].markdown(f"**Jurnal:** {meta.get('journal') or 'N/A'}")
+                    cols[1].markdown(f"**DOI:** {meta.get('doi') or 'N/A'}")
+                    cols[1].markdown(f"**Institusi:** {meta.get('institution') or 'N/A'}")
+                    if meta.get('keywords'):
+                        st.markdown(f"**Keywords:** {', '.join(meta['keywords'])}")
+                    if meta.get('abstract'):
+                        st.markdown(f"**Abstrak:** {meta['abstract']}")
+                else:
+                    st.caption("⚠️ Metadata tidak dapat diekstrak dari paper ini.")
+                st.divider()
+else:
+    if "messages" not in st.session_state or len(st.session_state.messages) == 0:
+        st.info("💡 **Tips:** Anda dapat langsung bertanya tentang topik riset umum, melakukan web search, atau mengunggah PDF riset di sidebar untuk analisis mendalam dengan sitasi otomatis.")
 
-        for fname, meta in st.session_state.paper_metadata.items():
-            st.markdown(f"**📄 {fname}**")
-            if meta:
-                cols = st.columns(2)
-                cols[0].markdown(f"**Judul:** {meta.get('title') or 'N/A'}")
-                cols[0].markdown(f"**Penulis:** {', '.join(meta.get('authors') or []) or 'N/A'}")
-                cols[0].markdown(f"**Tahun:** {meta.get('year') or 'N/A'}")
-                cols[0].markdown(f"**Jurnal:** {meta.get('journal') or 'N/A'}")
-                cols[1].markdown(f"**DOI:** {meta.get('doi') or 'N/A'}")
-                cols[1].markdown(f"**Institusi:** {meta.get('institution') or 'N/A'}")
-                if meta.get('keywords'):
-                    st.markdown(f"**Keywords:** {', '.join(meta['keywords'])}")
-                if meta.get('abstract'):
-                    st.markdown(f"**Abstrak:** {meta['abstract']}")
-            else:
-                st.caption("⚠️ Metadata tidak dapat diekstrak dari paper ini.")
-            st.divider()
-
+# ============================================================
+# CHAT INTERFACE
+# ============================================================
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -349,25 +367,30 @@ for i, msg in enumerate(st.session_state.messages):
                     save_session(st.session_state.session_id, st.session_state.messages, st.session_state.get("session_title", "Chat Baru"))
                     st.rerun()
 
-st.markdown("💡 **Rekomendasi Pertanyaan:**")
-cols = st.columns(3)
+# Recommendations Section — only show as conversation starters
+question = None
+if len(st.session_state.get("messages", [])) == 0:
+    st.markdown("💡 **Rekomendasi Pertanyaan:**")
+    cols = st.columns(3)
 
-sug_labels = ["Apa kontribusi utamanya?", "Bandingkan metodenya", "Ringkas temuan akhirnya"]
-if "dynamic_suggestions" in st.session_state:
-    sug_labels = st.session_state.dynamic_suggestions
+    sug_labels = ["Apa kontribusi utamanya?", "Bandingkan metodenya", "Ringkas temuan akhirnya"]
+    if "dynamic_suggestions" in st.session_state and len(st.session_state.dynamic_suggestions) >= 3:
+        sug_labels = st.session_state.dynamic_suggestions
 
-sug1 = cols[0].button(sug_labels[0], use_container_width=True)
-sug2 = cols[1].button(sug_labels[1], use_container_width=True)
-sug3 = cols[2].button(sug_labels[2], use_container_width=True)
+    sug1 = cols[0].button(sug_labels[0], use_container_width=True)
+    sug2 = cols[1].button(sug_labels[1], use_container_width=True)
+    sug3 = cols[2].button(sug_labels[2], use_container_width=True)
 
-question = st.chat_input("Tanya sesuatu atau suruh bandingkan paper...")
+    if sug1:
+        question = sug_labels[0]
+    if sug2:
+        question = sug_labels[1]
+    if sug3:
+        question = sug_labels[2]
 
-if sug1: 
-    question = sug_labels[0]
-if sug2: 
-    question = sug_labels[1]
-if sug3: 
-    question = sug_labels[2]
+chat_question = st.chat_input("Tanya sesuatu atau suruh bandingkan paper...")
+if chat_question:
+    question = chat_question
 
 action_req = st.session_state.pop("action_request", None)
 litreview_req = st.session_state.pop("litreview_request", False)
@@ -376,9 +399,9 @@ edit_req = st.session_state.pop("edit_request", None)
 if question or action_req or litreview_req or edit_req:
     is_action = action_req is not None
     is_litreview = litreview_req and not is_action
-    user_text = ""  # guard against UnboundLocalError
+    user_text = ""
     if is_litreview:
-        paper_list = ", ".join(st.session_state.files)
+        paper_list = ", ".join(st.session_state.get("files", []))
         user_text = f"Tolong buatkan **Literature Review** untuk semua paper: {paper_list}"
     elif is_action:
         paper_name, action_label, prompt_template = action_req
@@ -401,7 +424,7 @@ if question or action_req or litreview_req or edit_req:
         chain = prompt | llm | StrOutputParser()
         try:
             new_title = chain.invoke({"text": user_text})
-            st.session_state.session_title = new_title.strip('"\' ')
+            st.session_state.session_title = new_title.strip('"\' \n\r')[:30] or "Percakapan"
         except Exception:
             st.session_state.session_title = "Percakapan"
 
@@ -415,12 +438,12 @@ if question or action_req or litreview_req or edit_req:
         try:
             if is_litreview:
                 # Synthesize ALL uploaded documents
-                all_docs = st.session_state.documents
+                all_docs = st.session_state.get("documents", [])
                 stream = quick_action_stream(all_docs, llm, LITERATURE_REVIEW_PROMPT)
                 full_response = st.write_stream(stream)
             elif is_action:
                 selected_documents = [
-                    doc for doc in st.session_state.documents
+                    doc for doc in st.session_state.get("documents", [])
                     if doc.metadata.get("filename") == paper_name
                 ]
                 stream = quick_action_stream(selected_documents, llm, prompt_template)
@@ -444,9 +467,11 @@ if question or action_req or litreview_req or edit_req:
                     placeholder = st.empty()
                     for chunk, _ in agent.stream({"messages": langgraph_history}, stream_mode="messages"):
                         if isinstance(chunk, AIMessageChunk) and chunk.content:
-                            full_response += extract_text(chunk.content)
-                            placeholder.markdown(full_response + "▌")
-                    placeholder.markdown(full_response)
+                            extracted = extract_text(chunk.content)
+                            if extracted:
+                                full_response += extracted
+                                placeholder.markdown(full_response + "▌")
+                    placeholder.markdown(full_response or "Tidak ada respons yang dihasilkan.")
 
             st.session_state.messages.append({
                 "role": "assistant", 
