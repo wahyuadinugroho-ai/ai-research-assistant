@@ -19,7 +19,6 @@ clean:
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
 	rm -rf .pytest_cache .ruff_cache
-	rm -rf chroma_db faiss_index
 
 # Clean all saved chat history and archives
 clean-history:

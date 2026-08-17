@@ -24,5 +24,3 @@ wheels/
 chat_archive
 chat_history
 data/
-chroma_db/
-faiss_index/
